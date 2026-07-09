@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'config_loader.dart';
 import 'models.dart';
 import 'shell_strategy.dart';
 
@@ -21,10 +22,26 @@ class AsylumRunner {
 
   Future<int> run() async {
     final shellStrategy = _detectShell();
+
+    // Load configuration
+    Map<String, String> configEnv = {};
+    try {
+      final configLoader = ConfigLoader();
+      final configFile = configLoader.findConfigFile(Directory.current.path);
+      configEnv = configLoader.loadEnvironment(configFile);
+    } catch (e) {
+      if (e is FileSystemException) {
+        // Log that config wasn't found, but it's optional.
+        print('ℹ️ No asylum.yaml found. Proceeding with default environment.');
+      } else {
+        print('⚠️ Error loading asylum.yaml: $e');
+      }
+    }
+
     final tempDir = await Directory.systemTemp.createTemp('asylum_ctx_');
 
     final context = AsylumContext(
-      environment: Map<String, String>.from(Platform.environment),
+      environment: {...Platform.environment, ...configEnv},
       commands: [],
     );
 
