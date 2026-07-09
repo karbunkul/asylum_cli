@@ -65,6 +65,32 @@ class ConfigLoader {
     return result;
   }
 
+  /// Loads aliases from the found `asylum.yaml`.
+  Map<String, String> loadAliases(
+    File configFile,
+    Map<String, String> environment,
+  ) {
+    final content = configFile.readAsStringSync();
+    final yamlMap = loadYaml(content);
+
+    if (yamlMap == null || yamlMap is! YamlMap) {
+      return {};
+    }
+
+    final aliases = yamlMap['aliases'];
+    if (aliases == null || aliases is! YamlMap) {
+      return {};
+    }
+
+    final result = <String, String>{};
+    for (final entry in aliases.entries) {
+      final key = entry.key.toString();
+      final value = entry.value.toString();
+      result[key] = _interpolate(value, environment);
+    }
+    return result;
+  }
+
   String _interpolate(String value, Map<String, String> environment) {
     final regex = RegExp(
       r'\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)',

@@ -35,6 +35,12 @@ class ZshStrategy extends ShellStrategy {
       buffer.writeln(command);
     }
 
+    for (final entry in context.aliases.entries) {
+      final name = entry.key;
+      final value = entry.value.replaceAll("'", "'\\''");
+      buffer.writeln("alias $name='$value'");
+    }
+
     buffer.writeln('PROMPT="[asylum] \$PROMPT"');
 
     // Unset ZDOTDIR so that subshells started from within asylum
@@ -73,6 +79,12 @@ class BashStrategy extends ShellStrategy {
 
     for (final command in context.commands) {
       buffer.writeln(command);
+    }
+
+    for (final entry in context.aliases.entries) {
+      final name = entry.key;
+      final value = entry.value.replaceAll("'", "'\\''");
+      buffer.writeln("alias $name='$value'");
     }
 
     buffer.writeln('PS1="[asylum] \$PS1"');
