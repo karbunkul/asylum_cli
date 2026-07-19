@@ -122,5 +122,114 @@ environment:
       expect(env['PROJECT_BIN'], equals('${tempDir.path}/bin'));
       expect(env['PROJECT_LIB'], equals('${tempDir.path}/lib'));
     });
+
+    group('loadDotEnvFile', () {
+      late File configFile;
+
+      setUp(() {
+        configFile = File(p.join(tempDir.path, 'asylum.yaml'));
+        configFile.writeAsStringSync('environment: {}');
+      });
+
+      test('returns empty map when no .env file exists', () {
+        final env = loader.loadDotEnvFile(configFile);
+        expect(env, isEmpty);
+      });
+
+      test('parses KEY=VALUE pairs', () {
+        File(p.join(tempDir.path, '.env')).writeAsStringSync('''
+FOO=bar
+BAZ=qux
+''');
+        final env = loader.loadDotEnvFile(configFile);
+        expect(env, {'FOO': 'bar', 'BAZ': 'qux'});
+      });
+
+      test('ignores comments and blank lines', () {
+        File(p.join(tempDir.path, '.env')).writeAsStringSync('''
+# comment
+EMPTY_LINE_ABOVE=val
+
+ANOTHER=val2
+  # indented comment
+''');
+        final env = loader.loadDotEnvFile(configFile);
+        expect(env, {'EMPTY_LINE_ABOVE': 'val', 'ANOTHER': 'val2'});
+      });
+
+      test('strips quotes from values', () {
+        File(p.join(tempDir.path, '.env')).writeAsStringSync('''
+DB_HOST="localhost"
+DB_PORT='5432'
+NO_QUOTES=plain
+''');
+        final env = loader.loadDotEnvFile(configFile);
+        expect(env, {
+          'DB_HOST': 'localhost',
+          'DB_PORT': '5432',
+          'NO_QUOTES': 'plain',
+        });
+      });
+
+      test('trims whitespace around key and value', () {
+        File(p.join(tempDir.path, '.env')).writeAsStringSync('''
+  SPACED_KEY = spaced_value
+''');
+        final env = loader.loadDotEnvFile(configFile);
+        expect(env, {'SPACED_KEY': 'spaced_value'});
+      });
+
+      test('skips lines without equals sign', () {
+        File(p.join(tempDir.path, '.env')).writeAsStringSync('''
+KEY=value
+INVALID_LINE
+''');
+        final env = loader.loadDotEnvFile(configFile);
+        expect(env, {'KEY': 'value'});
+      });
+
+      test('skips lines with empty key', () {
+        File(p.join(tempDir.path, '.env')).writeAsStringSync('''
+=orphan
+KEY=value
+''');
+        final env = loader.loadDotEnvFile(configFile);
+        expect(env, {'KEY': 'value'});
+      });
+    });
+
+    group('.env integration with loadEnvironment', () {
+      test('YAML env vars override .env vars', () {
+        File(p.join(tempDir.path, '.env')).writeAsStringSync('''
+DB_HOST=from_env
+DB_PORT=5432
+''');
+        final configFile = File(p.join(tempDir.path, 'asylum.yaml'));
+        configFile.writeAsStringSync('''
+environment:
+  DB_HOST: from_yaml
+  APP_SECRET: secret123
+''');
+
+        final env = loader.loadEnvironment(configFile);
+        expect(env['DB_HOST'], 'from_yaml');
+        expect(env['DB_PORT'], '5432');
+        expect(env['APP_SECRET'], 'secret123');
+      });
+
+      test('.env vars are available for interpolation in YAML', () {
+        File(p.join(tempDir.path, '.env')).writeAsStringSync('''
+BASE_DIR=/opt/app
+''');
+        final configFile = File(p.join(tempDir.path, 'asylum.yaml'));
+        configFile.writeAsStringSync('''
+environment:
+  LOG_DIR: \$BASE_DIR/logs
+''');
+
+        final env = loader.loadEnvironment(configFile);
+        expect(env['LOG_DIR'], '/opt/app/logs');
+      });
+    });
   });
 }

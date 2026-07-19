@@ -5,6 +5,7 @@ import 'package:yaml/yaml.dart';
 
 class ConfigLoader {
   static const String configFileName = 'asylum.yaml';
+  static const String dotEnvFileName = '.env';
 
   /// Searches for `asylum.yaml` recursively from [startDir] up to the root.
   /// Throws [FileSystemException] if not found.
@@ -28,7 +29,39 @@ class ConfigLoader {
     }
   }
 
-  /// Loads environment variables from the found `asylum.yaml`.
+  /// Looks for a `.env` file in the same directory as [configFile].
+  /// Returns a map of parsed key-value pairs, or an empty map if the file doesn't exist.
+  Map<String, String> loadDotEnvFile(File configFile) {
+    final dotEnvFile = File(p.join(configFile.parent.path, dotEnvFileName));
+    if (!dotEnvFile.existsSync()) return {};
+
+    final result = <String, String>{};
+    final lines = dotEnvFile.readAsLinesSync();
+
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+
+      final eqIndex = trimmed.indexOf('=');
+      if (eqIndex == -1) continue;
+
+      final key = trimmed.substring(0, eqIndex).trim();
+      if (key.isEmpty) continue;
+
+      var value = trimmed.substring(eqIndex + 1).trim();
+
+      if (value.startsWith('"') && value.endsWith('"') ||
+          value.startsWith("'") && value.endsWith("'")) {
+        value = value.substring(1, value.length - 1);
+      }
+
+      result[key] = value;
+    }
+
+    return result;
+  }
+
+  /// Loads environment variables from the found `asylum.yaml`, merging with
   Map<String, String> loadEnvironment(
     File configFile, [
     Map<String, String>? environment,
@@ -45,17 +78,23 @@ class ConfigLoader {
       return {};
     }
 
-    final result = <String, String>{};
     final asylumRoot = configFile.parent.absolute.path;
 
-    // Use a context that includes ASYLUM_ROOT for interpolation
+    // Load .env vars as the base layer
+    final dotEnv = loadDotEnvFile(configFile);
+
+    // Use a context that includes .env, Platform, and ASYLUM_ROOT for interpolation
     final context = {
       ...(environment ?? Platform.environment),
+      ...dotEnv,
       'ASYLUM_ROOT': asylumRoot,
     };
 
-    // Pre-populate result with ASYLUM_ROOT
-    result['ASYLUM_ROOT'] = asylumRoot;
+    // Build result: .env as base, then ASYLUM_ROOT, then YAML env on top
+    final result = <String, String>{
+      ...dotEnv,
+      'ASYLUM_ROOT': asylumRoot,
+    };
 
     for (final entry in env.entries) {
       final key = entry.key.toString();
