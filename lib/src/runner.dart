@@ -21,7 +21,7 @@ class AsylumRunner {
     return ZshStrategy();
   }
 
-  Future<int> run() async {
+  Future<int> run({String? configPath}) async {
     final shellStrategy = _detectShell();
 
     // Load configuration
@@ -29,19 +29,35 @@ class AsylumRunner {
     Map<String, String> aliases = {};
     try {
       final configLoader = ConfigLoader();
-      final configFile = configLoader.findConfigFile(Directory.current.path);
-      configEnv = configLoader.loadEnvironment(configFile: configFile);
-      aliases = configLoader.loadAliases(
-        configFile: configFile,
-        platformEnv: {...Platform.environment, ...configEnv},
-      );
-    } catch (e) {
-      if (e is FileSystemException) {
-        // Log that config wasn't found, but it's optional.
-        print('ℹ️ No asylum.yaml found. Proceeding with default environment.');
+      File? configFile;
+      if (configPath != null) {
+        configFile = File(configPath);
+        if (!configFile.existsSync()) {
+          // If explicitly provided, this is a fatal error
+          print('❌ Error: Config file not found at $configPath');
+          return 1;
+        }
       } else {
-        print('⚠️ Error loading asylum.yaml: $e');
+        try {
+          configFile = configLoader.findConfigFile(Directory.current.path);
+        } catch (e) {
+          // If not found during search, it's optional - proceed with default env
+          print(
+            'ℹ️ No asylum.yaml found. Proceeding with default environment.',
+          );
+          configFile = null;
+        }
       }
+
+      if (configFile != null) {
+        configEnv = configLoader.loadEnvironment(configFile: configFile);
+        aliases = configLoader.loadAliases(
+          configFile: configFile,
+          platformEnv: {...Platform.environment, ...configEnv},
+        );
+      }
+    } catch (e) {
+      print('⚠️ Error loading configuration: $e');
     }
 
     final tempDir = await Directory.systemTemp.createTemp('asylum_ctx_');
