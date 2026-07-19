@@ -62,10 +62,12 @@ class ConfigLoader {
   }
 
   /// Loads environment variables from the found `asylum.yaml`, merging with
-  Map<String, String> loadEnvironment(
-    File configFile, [
-    Map<String, String>? environment,
-  ]) {
+  /// platform/default context and optionally overriding them with dynamic command results.
+  Map<String, String> loadEnvironment({
+    required File configFile,
+    Map<String, String>? platformEnv,
+    Map<String, String>? dynamicConfig,
+  }) {
     final content = configFile.readAsStringSync();
     final yamlMap = loadYaml(content);
 
@@ -80,35 +82,51 @@ class ConfigLoader {
 
     final asylumRoot = configFile.parent.absolute.path;
 
-    // Load .env vars as the base layer
+    // 1. Load .env vars as the base layer
     final dotEnv = loadDotEnvFile(configFile);
 
-    // Use a context that includes .env, Platform, and ASYLUM_ROOT for interpolation
-    final context = {
-      ...(environment ?? Platform.environment),
+    // 2. Define the base context for interpolation (Defaults, environment file, ASYLUM_ROOT)
+    final baseContext = {
+      ...(platformEnv ?? Platform.environment),
       ...dotEnv,
       'ASYLUM_ROOT': asylumRoot,
     };
 
-    // Build result: .env as base, then ASYLUM_ROOT, then YAML env on top
-    final result = <String, String>{
-      ...dotEnv,
-      'ASYLUM_ROOT': asylumRoot,
-    };
+    // 3. Build the result map by merging layers (Base -> YAML environment -> Dynamic)
+    final Map<String, String> mergedEnv = <String, String>{};
 
+    // Start with Base (.env + Platform)
+    mergedEnv.addAll(baseContext);
+
+    // Merge YAML environment settings, interpolating values
+    final yamlEnvResult = <String, String>{};
+    final currentContext = Map<String, String>.from(baseContext);
     for (final entry in env.entries) {
       final key = entry.key.toString();
-      final value = entry.value.toString();
-      result[key] = _interpolate(value, context);
+      final value = entry.value?.toString() ?? '';
+      final interpolatedValue = _interpolate(
+        value,
+        currentContext,
+        configFile.parent.path,
+      );
+      yamlEnvResult[key] = interpolatedValue;
+      currentContext[key] = interpolatedValue;
     }
-    return result;
+    mergedEnv.addAll(yamlEnvResult);
+
+    // 4. Overlay dynamic configurations (Highest Precedence)
+    if (dynamicConfig != null) {
+      mergedEnv.addAll(dynamicConfig);
+    }
+
+    return mergedEnv;
   }
 
   /// Loads aliases from the found `asylum.yaml`.
-  Map<String, String> loadAliases(
-    File configFile,
-    Map<String, String> environment,
-  ) {
+  Map<String, String> loadAliases({
+    required File configFile,
+    Map<String, String>? platformEnv,
+  }) {
     final content = configFile.readAsStringSync();
     final yamlMap = loadYaml(content);
 
@@ -121,22 +139,69 @@ class ConfigLoader {
       return {};
     }
 
+    final asylumRoot = configFile.parent.absolute.path;
+
+    // Define the base context for interpolation
+    final baseContext = {
+      ...(platformEnv ?? Platform.environment),
+      'ASYLUM_ROOT': asylumRoot,
+    };
+
     final result = <String, String>{};
+    final currentContext = Map<String, String>.from(baseContext);
     for (final entry in aliases.entries) {
       final key = entry.key.toString();
-      final value = entry.value.toString();
-      result[key] = _interpolate(value, environment);
+      final value = entry.value?.toString() ?? '';
+      final interpolatedValue = _interpolate(
+        value,
+        currentContext,
+        configFile.parent.path,
+      );
+      result[key] = interpolatedValue;
+      currentContext[key] = interpolatedValue;
     }
     return result;
   }
 
-  String _interpolate(String value, Map<String, String> environment) {
-    final regex = RegExp(
+  String _interpolate(
+    String value,
+    Map<String, String> environment,
+    String workingDirectory,
+  ) {
+    // 1. Variable interpolation: $VAR or ${VAR}
+    final varRegex = RegExp(
       r'\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)',
     );
-    return value.replaceAllMapped(regex, (match) {
+    var result = value.replaceAllMapped(varRegex, (match) {
       final name = match.group(1) ?? match.group(2)!;
       return environment[name] ?? '';
     });
+
+    // 2. Exec interpolation: {exec: command}
+    final execRegex = RegExp(r'\{exec:\s*(.*?)\}');
+    result = result.replaceAllMapped(execRegex, (match) {
+      final command = match.group(1)!;
+      try {
+        final shell = Platform.isWindows ? 'cmd' : 'sh';
+        final flag = Platform.isWindows ? '/c' : '-c';
+
+        final processResult = Process.runSync(
+          shell,
+          [flag, command],
+          environment: environment,
+          workingDirectory: workingDirectory,
+        );
+
+        if (processResult.exitCode == 0) {
+          return processResult.stdout.toString().trim();
+        } else {
+          return '';
+        }
+      } catch (e) {
+        return '';
+      }
+    });
+
+    return result;
   }
 }

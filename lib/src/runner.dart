@@ -29,11 +29,14 @@ class AsylumRunner {
     try {
       final configLoader = ConfigLoader();
       final configFile = configLoader.findConfigFile(Directory.current.path);
-      configEnv = configLoader.loadEnvironment(configFile);
-      aliases = configLoader.loadAliases(configFile, {
-        ...Platform.environment,
-        ...configEnv,
-      });
+      configEnv = configLoader.loadEnvironment(configFile: configFile);
+      aliases = configLoader.loadAliases(
+        configFile: configFile,
+        platformEnv: {
+          ...Platform.environment,
+          ...configEnv,
+        },
+      );
     } catch (e) {
       if (e is FileSystemException) {
         // Log that config wasn't found, but it's optional.

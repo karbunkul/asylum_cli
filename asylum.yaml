@@ -2,6 +2,12 @@
 environment:
   PUB_CACHE: $ASYLUM_ROOT/.pub-cache
   PATH: $ASYLUM_ROOT/.pub-cache/bin:$ASYLUM_ROOT/.fvm/flutter_sdk/bin:$PATH
+  PWD:
+    exec:
+      windows: dir
+      unix: pwd
+  GIT_BRANCH:
+    exec: git rev-parse --abbrev-ref HEAD
 
 aliases:
   clean: "flutter clean"

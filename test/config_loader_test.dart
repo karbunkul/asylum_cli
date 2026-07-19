@@ -52,7 +52,7 @@ environment:
   KEY2: 123
 ''');
 
-      final env = loader.loadEnvironment(configFile);
+      final env = loader.loadEnvironment(configFile: configFile);
       expect(env['KEY1'], 'value1');
       expect(env['KEY2'], '123');
       expect(env['ASYLUM_ROOT'], equals(tempDir.path));
@@ -62,7 +62,7 @@ environment:
       final configFile = File(p.join(tempDir.path, 'asylum.yaml'));
       configFile.writeAsStringSync('foo: bar');
 
-      final env = loader.loadEnvironment(configFile);
+      final env = loader.loadEnvironment(configFile: configFile);
       expect(env, isEmpty);
     });
 
@@ -83,7 +83,10 @@ environment:
         'VAR2': 'val2',
       };
 
-      final env = loader.loadEnvironment(configFile, mockEnv);
+      final env = loader.loadEnvironment(
+        configFile: configFile,
+        platformEnv: mockEnv,
+      );
       expect(env['PATH'], '/usr/bin:./bin');
       expect(env['USER_HOME'], '/home/user/.asylum');
       expect(env['MIXED'], 'val1 and val2');
@@ -101,7 +104,10 @@ environment:
 
       final mockEnv = {'VAR': 'value'};
 
-      final env = loader.loadEnvironment(configFile, mockEnv);
+      final env = loader.loadEnvironment(
+        configFile: configFile,
+        platformEnv: mockEnv,
+      );
 
       // Strict behavior: ${VAR is literal, $VAR} interpolates $VAR
       expect(env['UNBALANCED_OPEN'], equals('\${VAR'));
@@ -116,11 +122,59 @@ environment:
   PROJECT_LIB: \${ASYLUM_ROOT}/lib
 ''');
 
-      final env = loader.loadEnvironment(configFile, {});
+      final env = loader.loadEnvironment(
+        configFile: configFile,
+        platformEnv: {},
+      );
 
       expect(env['ASYLUM_ROOT'], equals(tempDir.path));
       expect(env['PROJECT_BIN'], equals('${tempDir.path}/bin'));
       expect(env['PROJECT_LIB'], equals('${tempDir.path}/lib'));
+    });
+
+    test('loadEnvironment gives highest precedence to dynamicConfig', () {
+      final configFile = File(p.join(tempDir.path, 'asylum.yaml'));
+      configFile.writeAsStringSync('''
+environment:
+  VAR: from_yaml
+''');
+
+      File(p.join(tempDir.path, '.env')).writeAsStringSync('VAR=from_dotenv');
+
+      final env = loader.loadEnvironment(
+        configFile: configFile,
+        platformEnv: {'VAR': 'from_platform'},
+        dynamicConfig: {'VAR': 'from_dynamic'},
+      );
+
+      expect(env['VAR'], equals('from_dynamic'));
+    });
+
+    group('loadAliases', () {
+      test('parses and interpolates aliases', () {
+        final configFile = File(p.join(tempDir.path, 'asylum.yaml'));
+        configFile.writeAsStringSync('''
+aliases:
+  ll: ls -la \$ASYLUM_ROOT
+  home: cd \${HOME}
+''');
+
+        final env = loader.loadAliases(
+          configFile: configFile,
+          platformEnv: {'HOME': '/home/user'},
+        );
+
+        expect(env['ll'], equals('ls -la ${tempDir.path}'));
+        expect(env['home'], equals('cd /home/user'));
+      });
+
+      test('returns empty map if aliases key is missing', () {
+        final configFile = File(p.join(tempDir.path, 'asylum.yaml'));
+        configFile.writeAsStringSync('environment: {}');
+
+        final env = loader.loadAliases(configFile: configFile);
+        expect(env, isEmpty);
+      });
     });
 
     group('loadDotEnvFile', () {
@@ -211,7 +265,7 @@ environment:
   APP_SECRET: secret123
 ''');
 
-        final env = loader.loadEnvironment(configFile);
+        final env = loader.loadEnvironment(configFile: configFile);
         expect(env['DB_HOST'], 'from_yaml');
         expect(env['DB_PORT'], '5432');
         expect(env['APP_SECRET'], 'secret123');
@@ -227,8 +281,50 @@ environment:
   LOG_DIR: \$BASE_DIR/logs
 ''');
 
-        final env = loader.loadEnvironment(configFile);
+        final env = loader.loadEnvironment(configFile: configFile);
         expect(env['LOG_DIR'], '/opt/app/logs');
+      });
+    });
+
+    group('exec interpolation', () {
+      test('loadEnvironment executes shell commands', () {
+        final configFile = File(p.join(tempDir.path, 'asylum.yaml'));
+        configFile.writeAsStringSync('''
+environment:
+  ECHO_TEST: "{exec: echo hello}"
+  PWD_TEST: "{exec: pwd}"
+''');
+
+        final env = loader.loadEnvironment(configFile: configFile);
+        expect(env['ECHO_TEST'], equals('hello'));
+        // Result of pwd should contain tempDir path
+        expect(env['PWD_TEST'], contains(p.basename(tempDir.path)));
+      });
+
+      test('exec interpolation supports variables inside command', () {
+        final configFile = File(p.join(tempDir.path, 'asylum.yaml'));
+        configFile.writeAsStringSync('''
+environment:
+  GREETING: hello
+  CMD_WITH_VAR: "{exec: echo \$GREETING world}"
+''');
+
+        // Note: $GREETING is in the environment map passed to Process.runSync
+        // But since we interpolate variables FIRST in _interpolate, 
+        // it becomes {exec: echo hello world} before execution.
+        final env = loader.loadEnvironment(configFile: configFile);
+        expect(env['CMD_WITH_VAR'], equals('hello world'));
+      });
+
+      test('exec returns empty string on failure', () {
+        final configFile = File(p.join(tempDir.path, 'asylum.yaml'));
+        configFile.writeAsStringSync('''
+environment:
+  FAIL: "{exec: non_existent_command_12345}"
+''');
+
+        final env = loader.loadEnvironment(configFile: configFile);
+        expect(env['FAIL'], equals(''));
       });
     });
   });
