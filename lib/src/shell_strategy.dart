@@ -43,6 +43,9 @@ class ZshStrategy extends ShellStrategy {
 
     buffer.writeln('PROMPT="[asylum] \$PROMPT"');
 
+    // Handle Ctrl+C (SIGINT) by exiting the shell
+    buffer.writeln('trap "exit 130" INT');
+
     // Unset ZDOTDIR so that subshells started from within asylum
     // don't use this temporary directory and instead use the default ~/.zshrc
     buffer.writeln('unset ZDOTDIR');
@@ -88,6 +91,9 @@ class BashStrategy extends ShellStrategy {
     }
 
     buffer.writeln('PS1="[asylum] \$PS1"');
+
+    // Handle Ctrl+C (SIGINT) by exiting the shell
+    buffer.writeln('trap "exit 130" SIGINT');
 
     await tempBashrc.writeAsString(buffer.toString());
   }

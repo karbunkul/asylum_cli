@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'config_loader.dart';
@@ -32,10 +33,7 @@ class AsylumRunner {
       configEnv = configLoader.loadEnvironment(configFile: configFile);
       aliases = configLoader.loadAliases(
         configFile: configFile,
-        platformEnv: {
-          ...Platform.environment,
-          ...configEnv,
-        },
+        platformEnv: {...Platform.environment, ...configEnv},
       );
     } catch (e) {
       if (e is FileSystemException) {
@@ -74,7 +72,16 @@ class AsylumRunner {
       mode: ProcessStartMode.inheritStdio,
     );
 
+    StreamSubscription<ProcessSignal>? sigintSubscription;
+    if (!Platform.isWindows) {
+      sigintSubscription = ProcessSignal.sigint.watch().listen((signal) {
+        print('\n⚡ Interrupt received (SIGINT). Closing Asylum...');
+        process.kill(ProcessSignal.sigkill);
+      });
+    }
+
     final exitCode = await process.exitCode;
+    await sigintSubscription?.cancel();
 
     await tempDir.delete(recursive: true);
     print('\n🚪 Exited Asylum. (Exit code: $exitCode)');
