@@ -310,7 +310,7 @@ environment:
 ''');
 
         // Note: $GREETING is in the environment map passed to Process.runSync
-        // But since we interpolate variables FIRST in _interpolate, 
+        // But since we interpolate variables FIRST in _interpolate,
         // it becomes {exec: echo hello world} before execution.
         final env = loader.loadEnvironment(configFile: configFile);
         expect(env['CMD_WITH_VAR'], equals('hello world'));
